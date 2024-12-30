@@ -1,39 +1,47 @@
 import { useAuth } from '../context/AuthContext';
 import { useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 export default function Login() {
-  const { isAuthenticated, setToken, user } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+
+  console.log('Login - Component State:', {
+    isAuthenticated,
+    hasUser: !!user,
+  });
 
   useEffect(() => {
-    // URL'den token'ı kontrol et
-    const token = searchParams.get('token');
-    if (token) {
-      setToken(token);
-      return;
-    }
-
-    // Eğer zaten giriş yapılmışsa kullanıcı sayfasına yönlendir
     if (isAuthenticated && user?.username) {
+      console.log('Login - User is authenticated, redirecting to profile', {
+        username: user.username,
+      });
       navigate(`/${user.username}`, { replace: true });
-      return;
     }
-  }, [searchParams, navigate, isAuthenticated, setToken, user]);
+  }, [navigate, isAuthenticated, user]);
 
   const handleGitHubLogin = () => {
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    console.log('Login - Starting GitHub login flow', { apiUrl });
     window.location.href = `${apiUrl}/api/auth/github/login`;
   };
 
-  // Yükleniyor durumunda loading göster
-  if (isAuthenticated || searchParams.get('token')) {
+  // Kullanıcı bilgileri yükleniyorsa loading göster
+  if (isAuthenticated && !user?.username) {
+    console.log('Login - Loading user data');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-500">
         <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-white"></div>
       </div>
     );
+  }
+
+  // Kullanıcı zaten giriş yapmışsa ve bilgileri varsa loading gösterme
+  if (isAuthenticated && user?.username) {
+    console.log('Login - User already logged in', {
+      username: user.username,
+    });
+    return null;
   }
 
   return (

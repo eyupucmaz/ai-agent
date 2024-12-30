@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';
+import IndexedFilesModal from '../components/IndexedFilesModal';
 
 interface Repository {
   id: number;
@@ -14,52 +15,124 @@ interface Repository {
   stargazers_count: number;
   language: string;
   isIndexing?: boolean;
+  indexStatus?: 'pending' | 'indexing' | 'completed' | 'error';
+}
+
+interface IndexedFile {
+  path: string;
+  lastModified: string;
+}
+
+interface IndexStatus {
+  owner: string;
+  name: string;
+  status: 'pending' | 'indexing' | 'completed' | 'error';
+  lastIndexed: string;
+  stats?: {
+    totalFiles: number;
+    recentFiles: IndexedFile[];
+  };
+}
+
+interface VectorFile {
+  filePath: string;
+  metadata: {
+    lastModified: string;
+  };
 }
 
 export default function Repos() {
   const [repos, setRepos] = useState<Repository[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedRepo, setSelectedRepo] = useState<{
+    name: string;
+    files: IndexedFile[];
+  }>({ name: '', files: [] });
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const { token, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const { username } = useParams<{ username: string }>();
 
+  console.log('Repos - Render State:', {
+    isAuthenticated,
+    user,
+    username,
+    reposCount: repos.length,
+  });
+
+  const fetchRepos = async () => {
+    try {
+      console.log('Repos - Repolar yükleniyor');
+      const response = await axios.get('/api/github/repos', {
+        baseURL: import.meta.env.VITE_API_URL,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      console.log('Repos - Repolar yüklendi:', {
+        count: response.data.length,
+      });
+
+      // İndeksleme durumlarını kontrol et
+      const indexStatusResponse = await axios.get('/api/vector/status', {
+        baseURL: import.meta.env.VITE_API_URL,
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      // Repoları ve indeksleme durumlarını birleştir
+      const reposWithStatus = response.data.map((repo: Repository) => {
+        const indexStatus = indexStatusResponse.data.find(
+          (status: IndexStatus) =>
+            status.owner === repo.owner.login && status.name === repo.name
+        );
+        return {
+          ...repo,
+          indexStatus: indexStatus?.status || 'pending',
+          isIndexing: indexStatus?.status === 'indexing',
+        };
+      });
+
+      setRepos(reposWithStatus);
+      setLoading(false);
+    } catch (error) {
+      console.error('Repos - Yükleme hatası:', error);
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!isAuthenticated) {
+      console.log(
+        "Repos - Kullanıcı authenticated değil, login'e yönlendiriliyor"
+      );
       navigate('/login');
       return;
     }
 
     // URL'deki username ile giriş yapan kullanıcı eşleşmiyorsa ana sayfaya yönlendir
     if (user?.username && username !== user.username) {
+      console.log('Repos - URL username uyuşmazlığı:', {
+        urlUsername: username,
+        userUsername: user.username,
+      });
       navigate(`/${user.username}`);
       return;
     }
-
-    const fetchRepos = async () => {
-      try {
-        const response = await axios.get('/api/github/repos', {
-          baseURL: import.meta.env.VITE_API_URL,
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        setRepos(response.data);
-      } catch (error) {
-        console.error('Repolar yüklenirken hata oluştu:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
 
     fetchRepos();
   }, [token, isAuthenticated, navigate, username, user]);
 
   const handleIndex = async (repo: Repository) => {
     try {
+      console.log('Repos - İndeksleme başlatılıyor:', { repo: repo.name });
       // Reponun indeksleme durumunu güncelle
       setRepos((prevRepos) =>
         prevRepos.map((r) =>
-          r.id === repo.id ? { ...r, isIndexing: true } : r
+          r.id === repo.id
+            ? { ...r, isIndexing: true, indexStatus: 'indexing' }
+            : r
         )
       );
 
@@ -74,24 +147,80 @@ export default function Repos() {
         }
       );
 
+      console.log('Repos - İndeksleme tamamlandı:', { repo: repo.name });
       // İndeksleme tamamlandığında durumu güncelle
       setRepos((prevRepos) =>
         prevRepos.map((r) =>
-          r.id === repo.id ? { ...r, isIndexing: false } : r
+          r.id === repo.id
+            ? { ...r, isIndexing: false, indexStatus: 'completed' }
+            : r
         )
       );
     } catch (error) {
-      console.error('Repo indekslenirken hata oluştu:', error);
+      console.error('Repos - İndeksleme hatası:', { repo: repo.name, error });
       // Hata durumunda indeksleme durumunu sıfırla
       setRepos((prevRepos) =>
         prevRepos.map((r) =>
-          r.id === repo.id ? { ...r, isIndexing: false } : r
+          r.id === repo.id
+            ? { ...r, isIndexing: false, indexStatus: 'error' }
+            : r
         )
       );
     }
   };
 
+  const handleReset = async () => {
+    try {
+      console.log('İndeksleme verileri sıfırlanıyor');
+      await axios.post(
+        '/api/vector/reset',
+        {},
+        {
+          baseURL: import.meta.env.VITE_API_URL,
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      console.log('İndeksleme verileri sıfırlandı');
+      // Repoları yeniden yükle
+      fetchRepos();
+    } catch (error) {
+      console.error('Sıfırlama hatası:', error);
+    }
+  };
+
+  const handleViewFiles = async (repo: Repository) => {
+    try {
+      const response = await axios.get<VectorFile[]>(
+        `/api/vector/${repo.owner.login}/${repo.name}`,
+        {
+          baseURL: import.meta.env.VITE_API_URL,
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      setSelectedRepo({
+        name: repo.name,
+        files: response.data.map((file) => ({
+          path: file.filePath,
+          lastModified: file.metadata.lastModified,
+        })),
+      });
+      setIsModalOpen(true);
+    } catch (error) {
+      console.error('Dosya listesi alınamadı:', error);
+    }
+  };
+
+  const handleChatWithRepo = (repo: Repository) => {
+    navigate(`/${username}/chat/${repo.owner.login}/${repo.name}`);
+  };
+
   if (loading) {
+    console.log('Repos - Loading durumu');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-600"></div>
@@ -102,9 +231,17 @@ export default function Repos() {
   return (
     <div className="min-h-screen bg-gray-100 py-8 px-4">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">
-          GitHub Repolarınız
-        </h1>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">
+            GitHub Repolarınız
+          </h1>
+          <button
+            onClick={handleReset}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200"
+          >
+            İndeksleme Verilerini Sıfırla
+          </button>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {repos.map((repo) => (
             <div
@@ -141,28 +278,50 @@ export default function Repos() {
                   </span>
                 </div>
               </div>
-              <button
-                onClick={() => handleIndex(repo)}
-                disabled={repo.isIndexing}
-                className={`w-full py-2 px-4 rounded-lg text-white font-medium transition-colors duration-200 ${
-                  repo.isIndexing
-                    ? 'bg-gray-400 cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700'
-                }`}
-              >
-                {repo.isIndexing ? (
-                  <div className="flex items-center justify-center space-x-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>İndeksleniyor...</span>
-                  </div>
+              <div className="space-y-2">
+                <button
+                  onClick={() => handleChatWithRepo(repo)}
+                  className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors duration-200"
+                >
+                  Chat with Repo
+                </button>
+                {repo.indexStatus === 'completed' ? (
+                  <button
+                    onClick={() => handleViewFiles(repo)}
+                    className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200"
+                  >
+                    İndekslenmiş Dosyaları Görüntüle
+                  </button>
                 ) : (
-                  'Repoyu İndeksle'
+                  <button
+                    onClick={() => handleIndex(repo)}
+                    disabled={repo.isIndexing}
+                    className={`w-full px-4 py-2 text-white rounded-lg transition-colors duration-200 ${
+                      repo.isIndexing
+                        ? 'bg-yellow-500'
+                        : repo.indexStatus === 'error'
+                        ? 'bg-red-600 hover:bg-red-700'
+                        : 'bg-blue-600 hover:bg-blue-700'
+                    }`}
+                  >
+                    {repo.isIndexing
+                      ? 'İndeksleniyor...'
+                      : repo.indexStatus === 'error'
+                      ? 'Tekrar İndeksle'
+                      : 'İndeksle'}
+                  </button>
                 )}
-              </button>
+              </div>
             </div>
           ))}
         </div>
       </div>
+      <IndexedFilesModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        repoName={selectedRepo.name}
+        files={selectedRepo.files}
+      />
     </div>
   );
 }

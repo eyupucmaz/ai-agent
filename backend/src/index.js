@@ -6,6 +6,10 @@ const session = require('express-session');
 const JwtStrategy = require('passport-jwt').Strategy;
 const ExtractJwt = require('passport-jwt').ExtractJwt;
 const mongoose = require('mongoose');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
+const setupChatHandlers = require('./socket/chat');
+const setupCleanupJob = require('./cron/cleanup');
 
 const authRouter = require('./routes/auth');
 const githubRouter = require('./routes/github');
@@ -13,6 +17,14 @@ const aiRouter = require('./routes/ai');
 const vectorRoutes = require('./routes/vector');
 
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: process.env.FRONTEND_URL,
+    credentials: true
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 
 // Middleware
@@ -38,7 +50,6 @@ const jwtOptions = {
 };
 
 passport.use(new JwtStrategy(jwtOptions, (jwt_payload, done) => {
-  // JWT payload'dan kullanıcıyı doğrula
   return done(null, jwt_payload);
 }));
 
@@ -53,7 +64,11 @@ passport.deserializeUser((user, done) => {
 
 // MongoDB bağlantısı
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('MongoDB\'ye başarıyla bağlanıldı'))
+  .then(() => {
+    console.log('MongoDB\'ye başarıyla bağlanıldı');
+    // Temizleme görevini başlat
+    setupCleanupJob();
+  })
   .catch(err => console.error('MongoDB bağlantı hatası:', err));
 
 // Routes
@@ -67,6 +82,10 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK' });
 });
 
-app.listen(PORT, () => {
+// WebSocket handlers
+setupChatHandlers(io);
+
+// HTTP server'ı başlat
+httpServer.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });

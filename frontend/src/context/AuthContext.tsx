@@ -1,9 +1,26 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
+interface IndexedRepo {
+  owner: string;
+  name: string;
+  status: 'indexing' | 'completed' | 'error';
+  lastIndexed: Date;
+  progress?: {
+    current: number;
+    total: number;
+    failed: number;
+    lastUpdated: Date;
+  };
+}
+
 interface User {
+  id: string;
+  githubId: string;
   username: string;
-  githubUsername?: string;
+  email: string;
+  avatarUrl: string;
+  indexedRepos: IndexedRepo[];
 }
 
 interface AuthContextType {
@@ -21,50 +38,88 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
-  const [token, setToken] = useState<string | null>(() => {
-    return localStorage.getItem('token');
+  const [token, _setToken] = useState<string | null>(() => {
+    const savedToken = localStorage.getItem('token');
+    console.log('AuthContext - Initial token:', savedToken ? 'exists' : 'null');
+    return savedToken;
   });
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  console.log('AuthContext - State:', {
+    hasToken: !!token,
+    user,
+    isLoading,
+  });
+
+  const setToken = (newToken: string | null) => {
+    console.log(
+      'AuthContext - setToken called:',
+      newToken ? 'new token' : 'null'
+    );
+    if (newToken) {
+      localStorage.setItem('token', newToken);
+      _setToken(newToken);
+    } else {
+      localStorage.removeItem('token');
+      _setToken(null);
+      setUser(null);
+    }
+  };
+
   const isAuthenticated = Boolean(token);
 
   useEffect(() => {
-    if (token) {
-      localStorage.setItem('token', token);
+    const fetchUser = async () => {
+      if (!token) {
+        console.log('AuthContext - No token, clearing user data');
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('AuthContext - Fetching user data');
       setIsLoading(true);
-      axios
-        .get('/api/auth/me', {
+
+      try {
+        const response = await axios.get('/api/auth/me', {
           baseURL: import.meta.env.VITE_API_URL,
           headers: { Authorization: `Bearer ${token}` },
-        })
-        .then((response) => setUser(response.data))
-        .catch(() => setToken(null))
-        .finally(() => setIsLoading(false));
-    } else {
-      localStorage.removeItem('token');
-      setUser(null);
-      setIsLoading(false);
-    }
-  }, [token]);
+        });
+        console.log('AuthContext - User data received:', response.data);
+        setUser(response.data);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('AuthContext - Error fetching user:', error);
+        // Token geçersizse veya hata varsa temizle
+        setToken(null);
+        setIsLoading(false);
+      }
+    };
+
+    fetchUser();
+  }, [token]); // setToken'ı dependency'den çıkardık
 
   const login = async (code: string) => {
     try {
+      console.log('AuthContext - Login started');
       const response = await axios.get(
         `/api/auth/github/callback?code=${code}`,
         {
           baseURL: import.meta.env.VITE_API_URL,
         }
       );
-      const { token } = response.data;
-      setToken(token);
+      const { token: newToken } = response.data;
+      console.log('AuthContext - Login successful, setting token');
+      setToken(newToken);
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('AuthContext - Login error:', error);
       throw error;
     }
   };
 
   const logout = () => {
+    console.log('AuthContext - Logout');
     setToken(null);
   };
 

@@ -1,13 +1,10 @@
 import React, { useState } from 'react';
 import { useVector } from '../hooks/useVector';
 
-interface SearchProps {
-  repoId: string;
-}
-
-const VectorSearch: React.FC<SearchProps> = ({ repoId }) => {
+const VectorSearch: React.FC = () => {
   const { searchVectors, isLoading, error } = useVector();
   const [query, setQuery] = useState('');
+  const [selectedRepo, setSelectedRepo] = useState<string>('');
   const [results, setResults] = useState<
     Array<{
       filePath: string;
@@ -23,10 +20,10 @@ const VectorSearch: React.FC<SearchProps> = ({ repoId }) => {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim()) return;
+    if (!query.trim() || !selectedRepo) return;
 
     try {
-      const searchResults = await searchVectors(repoId, query);
+      const searchResults = await searchVectors(selectedRepo, query);
       setResults(searchResults);
     } catch (error) {
       console.error('Arama hatası:', error);
@@ -36,25 +33,34 @@ const VectorSearch: React.FC<SearchProps> = ({ repoId }) => {
   return (
     <div className="container mx-auto p-4">
       <form onSubmit={handleSearch} className="mb-8">
-        <div className="flex gap-4">
+        <div className="flex flex-col gap-4">
           <input
             type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Kod tabanında ara..."
-            className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            value={selectedRepo}
+            onChange={(e) => setSelectedRepo(e.target.value)}
+            placeholder="GitHub repo URL'si (örn: kullanıcı/repo)"
+            className="px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <button
-            type="submit"
-            disabled={isLoading}
-            className={`px-6 py-2 rounded-lg text-white ${
-              isLoading
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-blue-500 hover:bg-blue-600'
-            }`}
-          >
-            {isLoading ? 'Aranıyor...' : 'Ara'}
-          </button>
+          <div className="flex gap-4">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Kod tabanında ara..."
+              className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              type="submit"
+              disabled={isLoading || !selectedRepo}
+              className={`px-6 py-2 rounded-lg text-white ${
+                isLoading || !selectedRepo
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-blue-500 hover:bg-blue-600'
+              }`}
+            >
+              {isLoading ? 'Aranıyor...' : 'Ara'}
+            </button>
+          </div>
         </div>
       </form>
 

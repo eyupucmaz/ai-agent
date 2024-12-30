@@ -1,12 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useAuth } from '../context/AuthContext';
 import { VectorProvider } from '../context/VectorProvider';
-import RepoList from '../components/RepoList';
 import VectorSearch from '../components/VectorSearch';
 
 const Home: React.FC = () => {
   const { user } = useAuth();
-  const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
 
   return (
     <VectorProvider>
@@ -21,25 +19,7 @@ const Home: React.FC = () => {
                 GitHub repolarını AI ile analiz etmeye başla.
               </p>
             </div>
-
-            {selectedRepo ? (
-              <>
-                <div className="mb-6 flex items-center justify-between">
-                  <h2 className="text-2xl font-semibold text-gray-900">
-                    Repo: {selectedRepo}
-                  </h2>
-                  <button
-                    onClick={() => setSelectedRepo(null)}
-                    className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
-                  >
-                    ← Repo Listesine Dön
-                  </button>
-                </div>
-                <VectorSearch repoId={selectedRepo} />
-              </>
-            ) : (
-              <RepoList onSelectRepo={setSelectedRepo} />
-            )}
+            <VectorSearch />
           </div>
         </div>
       </div>

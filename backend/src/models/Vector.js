@@ -1,6 +1,11 @@
 const mongoose = require('mongoose');
 
 const vectorSchema = new mongoose.Schema({
+  githubId: {
+    type: String,
+    required: true,
+    index: true
+  },
   repoId: {
     type: String,
     required: true,
@@ -30,6 +35,6 @@ const vectorSchema = new mongoose.Schema({
 });
 
 // Compound index for efficient querying
-vectorSchema.index({ repoId: 1, filePath: 1 }, { unique: true });
+vectorSchema.index({ githubId: 1, repoId: 1, filePath: 1 }, { unique: true });
 
 module.exports = mongoose.model('Vector', vectorSchema);
