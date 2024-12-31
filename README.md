@@ -1,5 +1,4 @@
-# AI Code Agent - PRD (Product Requirements Document)
-
+# AI Code Agent
 ## Product Summary
 
 AI Code Agent is a tool that allows developers to integrate their GitHub repositories with AI, understanding the codebase and assisting in the development process. By using the Google Gemini API, it can perform intelligent queries on the codebase, provide code suggestions, and apply automatic corrections.
