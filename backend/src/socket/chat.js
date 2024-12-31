@@ -84,6 +84,8 @@ function setupChatHandlers(io) {
     // AI ile sohbet
     socket.on('chat:message', async (data) => {
       try {
+        console.log('Kullanıcı mesajı alındı:', data);
+
         // Kullanıcı mesajını kaydet
         const userMessage = new Message({
           userId: socket.user.id,
@@ -93,29 +95,35 @@ function setupChatHandlers(io) {
           timestamp: new Date()
         });
         await userMessage.save();
+        console.log('Kullanıcı mesajı kaydedildi:', userMessage);
 
-        // Mesajı tüm bağlı kullanıcılara gönder
-        chat.emit('chat:message', {
+        // Mesajı tüm kullanıcılara gönder (gönderen dahil)
+        const userMessageData = {
           id: userMessage._id,
           userId: userMessage.userId,
           username: userMessage.username,
           text: userMessage.text,
           type: 'user',
           timestamp: userMessage.timestamp
-        });
+        };
+        io.of('/chat').emit('chat:message', userMessageData);
+        console.log('Kullanıcı mesajı broadcast edildi:', userMessageData);
 
         // Eğer repo ve dosya araması isteniyorsa
         let context = '';
         if (data.repoId && data.searchQuery) {
+          console.log('Repo araması yapılıyor:', { repoId: data.repoId, searchQuery: data.searchQuery });
           const relevantFiles = await searchVectors(socket.user.id, data.repoId, data.searchQuery);
           if (relevantFiles.length > 0) {
             context = `İlgili dosya içerikleri:\n${relevantFiles.map(f =>
               `${f.filePath}:\n${f.content}\n`
             ).join('\n')}`;
+            console.log('İlgili dosyalar bulundu:', relevantFiles.length);
           }
         }
 
         // Gemini AI yanıtı
+        console.log('AI yanıtı oluşturuluyor...');
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
         // Son mesajları al
@@ -125,15 +133,30 @@ function setupChatHandlers(io) {
           .lean();
 
         // Sohbet geçmişini oluştur
-        const chatHistory = recentMessages.reverse()
-          .map(msg => ({
-            role: msg.type === 'user' ? 'user' : 'model',
-            parts: [{ text: msg.text }]
-          }));
+        const chatHistory = recentMessages.reverse();
+
+        // İlk mesajın 'user' rolünde olduğundan emin ol
+        const formattedHistory = [];
+        let foundFirstUserMessage = false;
+
+        for (const msg of chatHistory) {
+          if (!foundFirstUserMessage && msg.type === 'user') {
+            foundFirstUserMessage = true;
+          }
+
+          if (foundFirstUserMessage) {
+            formattedHistory.push({
+              role: msg.type === 'user' ? 'user' : 'model',
+              parts: [{ text: msg.text }]
+            });
+          }
+        }
+
+        console.log('Sohbet geçmişi:', formattedHistory);
 
         // Chat'i başlat
         const chat = model.startChat({
-          history: chatHistory,
+          history: formattedHistory,
           generationConfig: {
             temperature: 0.7,
             topK: 40,
@@ -146,8 +169,10 @@ function setupChatHandlers(io) {
           `${context}\n\nKullanıcı sorusu: ${data.text}` :
           data.text;
 
+        console.log('AI\'ya gönderilen prompt:', prompt);
         const result = await chat.sendMessage(prompt);
         const aiResponse = await result.response;
+        console.log('AI yanıtı alındı:', aiResponse.text());
 
         // AI yanıtını kaydet
         const aiMessage = new Message({
@@ -158,20 +183,27 @@ function setupChatHandlers(io) {
           timestamp: new Date()
         });
         await aiMessage.save();
+        console.log('AI yanıtı kaydedildi:', aiMessage);
 
-        // AI yanıtını gönder
-        chat.emit('chat:message', {
+        // AI yanıtını tüm kullanıcılara gönder
+        const aiMessageData = {
           id: aiMessage._id,
           userId: aiMessage.userId,
           username: aiMessage.username,
           text: aiMessage.text,
           type: 'ai',
           timestamp: aiMessage.timestamp
-        });
+        };
+        io.of('/chat').emit('chat:message', aiMessageData);
+        console.log('AI yanıtı broadcast edildi:', aiMessageData);
 
       } catch (error) {
         console.error('Mesaj işleme hatası:', error);
-        socket.emit('chat:error', { message: 'Mesaj işlenemedi' });
+        console.error('Hata detayı:', error.stack);
+        socket.emit('chat:error', {
+          message: 'Mesaj işlenemedi',
+          error: error.message
+        });
       }
     });
 

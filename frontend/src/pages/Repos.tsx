@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -21,6 +21,7 @@ interface Repository {
 interface IndexedFile {
   path: string;
   lastModified: string;
+  description: string;
 }
 
 interface IndexStatus {
@@ -39,6 +40,7 @@ interface VectorFile {
   metadata: {
     lastModified: string;
   };
+  description: string;
 }
 
 export default function Repos() {
@@ -60,20 +62,19 @@ export default function Repos() {
     reposCount: repos.length,
   });
 
-  const fetchRepos = async () => {
+  const fetchRepos = useCallback(async () => {
     try {
-      console.log('Repos - Repolar yükleniyor');
+      console.log('Repos - Loading repos');
       const response = await axios.get('/api/github/repos', {
         baseURL: import.meta.env.VITE_API_URL,
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
-      console.log('Repos - Repolar yüklendi:', {
+      console.log('Repos - Repos loaded:', {
         count: response.data.length,
       });
 
-      // İndeksleme durumlarını kontrol et
       const indexStatusResponse = await axios.get('/api/vector/status', {
         baseURL: import.meta.env.VITE_API_URL,
         headers: {
@@ -81,7 +82,6 @@ export default function Repos() {
         },
       });
 
-      // Repoları ve indeksleme durumlarını birleştir
       const reposWithStatus = response.data.map((repo: Repository) => {
         const indexStatus = indexStatusResponse.data.find(
           (status: IndexStatus) =>
@@ -97,23 +97,20 @@ export default function Repos() {
       setRepos(reposWithStatus);
       setLoading(false);
     } catch (error) {
-      console.error('Repos - Yükleme hatası:', error);
+      console.error('Repos - Loading error:', error);
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
     if (!isAuthenticated) {
-      console.log(
-        "Repos - Kullanıcı authenticated değil, login'e yönlendiriliyor"
-      );
+      console.log('Repos - User not authenticated, redirecting to login');
       navigate('/login');
       return;
     }
 
-    // URL'deki username ile giriş yapan kullanıcı eşleşmiyorsa ana sayfaya yönlendir
     if (user?.username && username !== user.username) {
-      console.log('Repos - URL username uyuşmazlığı:', {
+      console.log('Repos - URL username mismatch:', {
         urlUsername: username,
         userUsername: user.username,
       });
@@ -122,11 +119,40 @@ export default function Repos() {
     }
 
     fetchRepos();
-  }, [token, isAuthenticated, navigate, username, user]);
+
+    const interval = setInterval(async () => {
+      try {
+        const indexStatusResponse = await axios.get('/api/vector/status', {
+          baseURL: import.meta.env.VITE_API_URL,
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        setRepos((prevRepos) =>
+          prevRepos.map((repo) => {
+            const indexStatus = indexStatusResponse.data.find(
+              (status: IndexStatus) =>
+                status.owner === repo.owner.login && status.name === repo.name
+            );
+            return {
+              ...repo,
+              indexStatus: indexStatus?.status || 'pending',
+              isIndexing: indexStatus?.status === 'indexing',
+            };
+          })
+        );
+      } catch (error) {
+        console.error('İndeksleme durumu kontrol hatası:', error);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [token, isAuthenticated, navigate, username, user, fetchRepos]);
 
   const handleIndex = async (repo: Repository) => {
     try {
-      console.log('Repos - İndeksleme başlatılıyor:', { repo: repo.name });
+      console.log('Repos - Starting indexing:', { repo: repo.name });
       // Reponun indeksleme durumunu güncelle
       setRepos((prevRepos) =>
         prevRepos.map((r) =>
@@ -147,7 +173,7 @@ export default function Repos() {
         }
       );
 
-      console.log('Repos - İndeksleme tamamlandı:', { repo: repo.name });
+      console.log('Repos - Indexing completed:', { repo: repo.name });
       // İndeksleme tamamlandığında durumu güncelle
       setRepos((prevRepos) =>
         prevRepos.map((r) =>
@@ -157,7 +183,7 @@ export default function Repos() {
         )
       );
     } catch (error) {
-      console.error('Repos - İndeksleme hatası:', { repo: repo.name, error });
+      console.error('Repos - Indexing error:', { repo: repo.name, error });
       // Hata durumunda indeksleme durumunu sıfırla
       setRepos((prevRepos) =>
         prevRepos.map((r) =>
@@ -171,7 +197,7 @@ export default function Repos() {
 
   const handleReset = async () => {
     try {
-      console.log('İndeksleme verileri sıfırlanıyor');
+      console.log('Resetting indexing data');
       await axios.post(
         '/api/vector/reset',
         {},
@@ -182,11 +208,11 @@ export default function Repos() {
           },
         }
       );
-      console.log('İndeksleme verileri sıfırlandı');
-      // Repoları yeniden yükle
+      console.log('Indexing data has been reset');
+
       fetchRepos();
     } catch (error) {
-      console.error('Sıfırlama hatası:', error);
+      console.error('Reset error:', error);
     }
   };
 
@@ -207,20 +233,17 @@ export default function Repos() {
         files: response.data.map((file) => ({
           path: file.filePath,
           lastModified: file.metadata.lastModified,
+          description: file.description || 'No description available',
         })),
       });
       setIsModalOpen(true);
     } catch (error) {
-      console.error('Dosya listesi alınamadı:', error);
+      console.error('Could not get file list:', error);
     }
   };
 
-  const handleChatWithRepo = (repo: Repository) => {
-    navigate(`/${username}/chat/${repo.owner.login}/${repo.name}`);
-  };
-
   if (loading) {
-    console.log('Repos - Loading durumu');
+    console.log('Repos - Loading state');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-indigo-600"></div>
@@ -233,13 +256,13 @@ export default function Repos() {
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">
-            GitHub Repolarınız
+            Your GitHub Repositories
           </h1>
           <button
             onClick={handleReset}
             className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200"
           >
-            İndeksleme Verilerini Sıfırla
+            Reset Indexing Data
           </button>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -259,7 +282,7 @@ export default function Repos() {
                 </a>
               </h2>
               <p className="text-gray-600 mb-4 line-clamp-2">
-                {repo.description || 'Açıklama bulunmuyor'}
+                {repo.description || 'No description available'}
               </p>
               <div className="flex items-center justify-between mb-4">
                 {repo.language && (
@@ -279,18 +302,12 @@ export default function Repos() {
                 </div>
               </div>
               <div className="space-y-2">
-                <button
-                  onClick={() => handleChatWithRepo(repo)}
-                  className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors duration-200"
-                >
-                  Chat with Repo
-                </button>
                 {repo.indexStatus === 'completed' ? (
                   <button
                     onClick={() => handleViewFiles(repo)}
                     className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200"
                   >
-                    İndekslenmiş Dosyaları Görüntüle
+                    View Indexed Files
                   </button>
                 ) : (
                   <button
@@ -305,10 +322,10 @@ export default function Repos() {
                     }`}
                   >
                     {repo.isIndexing
-                      ? 'İndeksleniyor...'
+                      ? 'Indexing...'
                       : repo.indexStatus === 'error'
-                      ? 'Tekrar İndeksle'
-                      : 'İndeksle'}
+                      ? 'Reindex'
+                      : 'Index'}
                   </button>
                 )}
               </div>

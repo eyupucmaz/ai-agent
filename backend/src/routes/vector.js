@@ -119,6 +119,54 @@ async function updateIndexingStatus(user, owner, repo, currentFile, totalFiles, 
   }
 }
 
+// İndeksleme işlemini kontrol et
+async function checkIndexingStatus(user, owner, repo) {
+  const repoIndex = user.indexedRepos.findIndex(r => r.owner === owner && r.name === repo);
+  if (repoIndex !== -1) {
+    const lastUpdated = user.indexedRepos[repoIndex].progress?.lastUpdated;
+    if (lastUpdated) {
+      // Son 5 dakikadır güncelleme yoksa, timeout olarak kabul et
+      const timeoutMinutes = 5;
+      const now = new Date();
+      const diffMinutes = (now.getTime() - lastUpdated.getTime()) / (1000 * 60);
+
+      if (diffMinutes > timeoutMinutes && user.indexedRepos[repoIndex].status === 'indexing') {
+        user.indexedRepos[repoIndex].status = 'error';
+        user.indexedRepos[repoIndex].error = 'Indexing timeout';
+        await user.save();
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+// Dosya içeriğini analiz edip description üretme fonksiyonu
+async function generateFileDescription(content, filePath) {
+  try {
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+    const prompt = `Bu bir kod dosyasının içeriği. Lütfen bu dosyanın ne yaptığını kısaca (en fazla 2-3 cümle) açıkla. Teknik detayları içermeli ama çok uzun olmamalı:
+
+Dosya: ${filePath}
+
+İçerik:
+${content}`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const description = response.text();
+
+    if (!description) {
+      return 'Dosya açıklaması üretilemedi.';
+    }
+
+    return description.trim();
+  } catch (error) {
+    console.error('Description üretme hatası:', error);
+    return 'Dosya açıklaması üretilemedi.';
+  }
+}
+
 // Repo indeksleme endpoint'i
 router.post('/index/:owner/:repo', auth, async (req, res) => {
   try {
@@ -136,21 +184,11 @@ router.post('/index/:owner/:repo', auth, async (req, res) => {
       console.error('Kullanıcı bulunamadı:', req.user.id);
       return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
     }
-    console.log('Kullanıcı bulundu:', {
-      githubId: user.githubId,
-      username: user.username,
-      indexedReposCount: user.indexedRepos?.length || 0
-    });
 
     if (!req.user.githubToken) {
       console.error('GitHub token bulunamadı:', { githubId: req.user.id });
       return res.status(401).json({ message: 'GitHub token bulunamadı' });
     }
-
-    // GitHub client'ı oluştur
-    const octokit = new Octokit({
-      auth: req.user.githubToken
-    });
 
     // Repo durumunu güncelle
     const repoIndex = user.indexedRepos?.findIndex(r => r.owner === owner && r.name === repo) ?? -1;
@@ -171,6 +209,14 @@ router.post('/index/:owner/:repo', auth, async (req, res) => {
         }
       });
     } else {
+      // Eğer zaten indexing durumunda ve timeout olmamışsa, yeni işlem başlatma
+      if (user.indexedRepos[repoIndex].status === 'indexing') {
+        const isActive = await checkIndexingStatus(user, owner, repo);
+        if (isActive) {
+          return res.status(409).json({ message: 'İndeksleme işlemi zaten devam ediyor' });
+        }
+      }
+
       user.indexedRepos[repoIndex].status = 'indexing';
       user.indexedRepos[repoIndex].lastIndexed = new Date();
       user.indexedRepos[repoIndex].progress = {
@@ -182,130 +228,126 @@ router.post('/index/:owner/:repo', auth, async (req, res) => {
     }
     await user.save();
 
-    // Tüm repo içeriğini rekürsif olarak al
-    const allFiles = await getAllFiles(octokit, owner, repo);
-    console.log('Repo içeriği alındı:', { totalFileCount: allFiles.length });
-
-    // İlk durumu güncelle
-    await updateIndexingStatus(user, owner, repo, 0, allFiles.length);
-
-    // Dosyaları işle ve vektörleştir
-    const processedFiles = [];
-    const failedFiles = [];
-
-    for (let i = 0; i < allFiles.length; i++) {
-      const file = allFiles[i];
+    // İndeksleme işlemini arka planda başlat
+    (async () => {
       try {
-        console.log('Dosya işleniyor:', { path: file.path, size: file.size });
-        const { data: fileContent } = await octokit.repos.getContent({
-          owner,
-          repo,
-          path: file.path
+        const octokit = new Octokit({
+          auth: req.user.githubToken
         });
 
-        const content = Buffer.from(fileContent.content, 'base64').toString();
-        const processedContent = processFileContent(content);
+        const allFiles = await getAllFiles(octokit, owner, repo);
+        console.log('Repo içeriği alındı:', { totalFileCount: allFiles.length });
 
-        // Gemini ile vektörleştirme
-        try {
-          const vector = await getEmbedding(processedContent);
+        await updateIndexingStatus(user, owner, repo, 0, allFiles.length);
 
-          // Vektör veritabanına kaydet
-          await Vector.findOneAndUpdate(
-            {
-              githubId: req.user.id,
-              repoId: `${owner}/${repo}`,
-              filePath: file.path
-            },
-            {
-              githubId: req.user.id,
-              content: processedContent,
-              vector,
-              metadata: {
-                language: file.name.split('.').pop(),
-                lastModified: fileContent.last_modified ? new Date(fileContent.last_modified) : new Date(),
-                size: fileContent.size
-              }
-            },
-            { upsert: true }
-          );
+        const processedFiles = [];
+        const failedFiles = [];
 
-          processedFiles.push(file.path);
-          console.log('Dosya başarıyla işlendi:', file.path);
-        } catch (error) {
-          console.error('Vektörleştirme hatası:', {
-            file: file.path,
-            error: error.message
-          });
-          failedFiles.push({ path: file.path, error: error.message });
+        for (let i = 0; i < allFiles.length; i++) {
+          // Her iterasyonda timeout kontrolü yap
+          const isActive = await checkIndexingStatus(user, owner, repo);
+          if (!isActive) {
+            console.log('İndeksleme timeout nedeniyle durduruldu');
+            return;
+          }
+
+          const file = allFiles[i];
+          try {
+            console.log('Dosya işleniyor:', { path: file.path, size: file.size });
+            const { data: fileContent } = await octokit.repos.getContent({
+              owner,
+              repo,
+              path: file.path
+            });
+
+            const content = Buffer.from(fileContent.content, 'base64').toString();
+            const processedContent = processFileContent(content);
+
+            try {
+              const vector = await getEmbedding(processedContent);
+              const description = await generateFileDescription(processedContent, file.path);
+
+              await Vector.findOneAndUpdate(
+                {
+                  githubId: req.user.id,
+                  repoId: `${owner}/${repo}`,
+                  filePath: file.path
+                },
+                {
+                  githubId: req.user.id,
+                  content: processedContent,
+                  description,
+                  vector,
+                  metadata: {
+                    language: file.name.split('.').pop(),
+                    lastModified: fileContent.last_modified ? new Date(fileContent.last_modified) : new Date(),
+                    size: fileContent.size
+                  }
+                },
+                { upsert: true }
+              );
+
+              processedFiles.push(file.path);
+              console.log('Dosya başarıyla işlendi:', file.path);
+            } catch (error) {
+              console.error('Vektörleştirme hatası:', {
+                file: file.path,
+                error: error.message
+              });
+              failedFiles.push({ path: file.path, error: error.message });
+            }
+
+            if (i % 5 === 0 || i === allFiles.length - 1) {
+              await updateIndexingStatus(user, owner, repo, i + 1, allFiles.length, failedFiles);
+            }
+          } catch (error) {
+            console.error('Dosya işleme hatası:', {
+              file: file.path,
+              error: error.message
+            });
+            failedFiles.push({ path: file.path, error: error.message });
+            await updateIndexingStatus(user, owner, repo, i + 1, allFiles.length, failedFiles);
+          }
         }
 
-        // Her 5 dosyada bir durumu güncelle
-        if (i % 5 === 0 || i === allFiles.length - 1) {
-          await updateIndexingStatus(user, owner, repo, i + 1, allFiles.length, failedFiles);
-        }
+        // İndeksleme tamamlandı
+        const updatedUser = await User.findOne({ githubId: req.user.id });
+        const updatedRepoIndex = updatedUser.indexedRepos.findIndex(r => r.owner === owner && r.name === repo);
+        updatedUser.indexedRepos[updatedRepoIndex].status = failedFiles.length === 0 ? 'completed' : 'error';
+        updatedUser.indexedRepos[updatedRepoIndex].progress = {
+          current: allFiles.length,
+          total: allFiles.length,
+          failed: failedFiles.length,
+          lastUpdated: new Date()
+        };
+        await updatedUser.save();
+
+        console.log('İndeksleme tamamlandı:', {
+          repo: `${owner}/${repo}`,
+          processedFiles: processedFiles.length,
+          failedFiles: failedFiles.length
+        });
       } catch (error) {
-        console.error('Dosya işleme hatası:', {
-          file: file.path,
-          error: error.message
-        });
-        failedFiles.push({ path: file.path, error: error.message });
-        await updateIndexingStatus(user, owner, repo, i + 1, allFiles.length, failedFiles);
-      }
-    }
-
-    // İndeksleme tamamlandı
-    const updatedUser = await User.findOne({ githubId: req.user.id });
-    const updatedRepoIndex = updatedUser.indexedRepos.findIndex(r => r.owner === owner && r.name === repo);
-    updatedUser.indexedRepos[updatedRepoIndex].status = failedFiles.length === 0 ? 'completed' : 'error';
-    updatedUser.indexedRepos[updatedRepoIndex].progress = {
-      current: allFiles.length,
-      total: allFiles.length,
-      failed: failedFiles.length,
-      lastUpdated: new Date()
-    };
-    await updatedUser.save();
-
-    res.json({
-      message: 'Repo indeksleme tamamlandı',
-      processedFiles,
-      failedFiles,
-      totalProcessed: processedFiles.length,
-      totalFailed: failedFiles.length
-    });
-  } catch (error) {
-    console.error('İndeksleme hatası:', {
-      message: error.message,
-      stack: error.stack,
-      response: error.response?.data,
-      status: error.response?.status
-    });
-
-    // Hata durumunda repo durumunu güncelle
-    try {
-      const user = await User.findOne({ githubId: req.user.id });
-      if (user?.indexedRepos) {
-        const repoIndex = user.indexedRepos.findIndex(r => r.owner === req.params.owner && r.name === req.params.repo);
-        if (repoIndex !== -1) {
-          user.indexedRepos[repoIndex].status = 'error';
-          await user.save();
-          console.log('Hata durumu kaydedildi');
+        console.error('İndeksleme hatası:', error);
+        const user = await User.findOne({ githubId: req.user.id });
+        if (user?.indexedRepos) {
+          const repoIndex = user.indexedRepos.findIndex(r => r.owner === owner && r.name === repo);
+          if (repoIndex !== -1) {
+            user.indexedRepos[repoIndex].status = 'error';
+            user.indexedRepos[repoIndex].error = error.message;
+            await user.save();
+          }
         }
       }
-    } catch (saveError) {
-      console.error('Hata durumu kaydedilemedi:', {
-        error: saveError.message,
-        stack: saveError.stack
-      });
-    }
+    })();
 
-    if (error.response?.status === 401) {
-      return res.status(401).json({ message: 'GitHub token geçersiz' });
-    }
-
+    // Hemen cevap dön
+    res.json({ message: 'İndeksleme başlatıldı' });
+  } catch (error) {
+    console.error('İndeksleme başlatma hatası:', error);
     res.status(500).json({
-      message: 'İndeksleme sırasında bir hata oluştu',
-      error: error.response?.data?.message || error.message
+      message: 'İndeksleme başlatılırken bir hata oluştu',
+      error: error.message
     });
   }
 });
@@ -328,6 +370,7 @@ router.post('/search', auth, async (req, res) => {
       return {
         filePath: doc.filePath,
         content: doc.content,
+        description: doc.description,
         similarity,
         metadata: doc.metadata
       };
@@ -389,10 +432,10 @@ router.delete('/:owner/:repo', auth, async (req, res) => {
   }
 });
 
-// İndeksleme durumlarını getir
+// İndeksleme durumunu kontrol et
 router.get('/status', auth, async (req, res) => {
   try {
-    console.log('İndeksleme durumları istendi:', {
+    console.log('İndeksleme durumu kontrol ediliyor:', {
       userId: req.user.id,
       username: req.user.username
     });
@@ -403,43 +446,21 @@ router.get('/status', auth, async (req, res) => {
       return res.status(404).json({ message: 'Kullanıcı bulunamadı' });
     }
 
-    // Her repo için indeksleme durumunu ve istatistikleri al
-    const indexedRepos = await Promise.all((user.indexedRepos || []).map(async (repo) => {
-      // Repo için vektör sayısını al
-      const vectorCount = await Vector.countDocuments({
-        githubId: req.user.id,
-        repoId: `${repo.owner}/${repo.name}`
-      });
-
-      // Son indekslenen dosyaları al
-      const recentFiles = await Vector.find({
-        githubId: req.user.id,
-        repoId: `${repo.owner}/${repo.name}`
-      })
-      .sort({ 'metadata.lastModified': -1 })
-      .limit(5)
-      .select('filePath metadata.lastModified');
-
-      return {
-        owner: repo.owner,
-        name: repo.name,
-        status: repo.status,
-        lastIndexed: repo.lastIndexed,
-        stats: {
-          totalFiles: vectorCount,
-          recentFiles: recentFiles.map(f => ({
-            path: f.filePath,
-            lastModified: f.metadata.lastModified
-          }))
-        }
-      };
+    // İndekslenmiş repoları dön
+    const indexedRepos = user.indexedRepos || [];
+    const repoList = indexedRepos.map(repo => ({
+      repo: `${repo.owner}/${repo.name}`,
+      status: repo.status,
+      progress: repo.progress,
+      error: repo.error
     }));
 
-    res.json(indexedRepos);
+    console.log('İndekslenmiş repolar:', repoList);
+    return res.json(repoList);
   } catch (error) {
-    console.error('İndeksleme durumları getirme hatası:', error);
-    res.status(500).json({
-      message: 'İndeksleme durumlarını getirirken bir hata oluştu',
+    console.error('Status endpoint hatası:', error);
+    return res.status(500).json({
+      message: 'İndeksleme durumları alınırken bir hata oluştu',
       error: error.message
     });
   }

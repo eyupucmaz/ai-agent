@@ -1,8 +1,22 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios, { AxiosError } from 'axios';
 import { useAuth } from './AuthContext';
 import { VectorContext } from './VectorContext';
 import { SearchResult, VectorData } from './vectorTypes';
+
+interface IndexStatus {
+  owner: string;
+  name: string;
+  status: string;
+  lastIndexed: string;
+  stats?: {
+    totalFiles: number;
+    recentFiles: Array<{
+      path: string;
+      lastModified: string;
+    }>;
+  };
+}
 
 export const VectorProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -20,6 +34,27 @@ export const VectorProvider: React.FC<{ children: React.ReactNode }> = ({
       Authorization: `Bearer ${token}`,
     },
   });
+
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const response = await api.get<IndexStatus[]>('/api/vector/status');
+        const statusMap: { [key: string]: string } = {};
+        response.data.forEach((repo: IndexStatus) => {
+          statusMap[`${repo.owner}/${repo.name}`] = repo.status || 'pending';
+        });
+        setIndexingStatus(statusMap);
+      } catch (error) {
+        console.error('İndeksleme durumu kontrol hatası:', error);
+      }
+    };
+
+    checkStatus();
+
+    const interval = setInterval(checkStatus, 10000);
+
+    return () => clearInterval(interval);
+  }, [token]);
 
   const indexRepo = async (owner: string, repo: string) => {
     try {
@@ -39,7 +74,7 @@ export const VectorProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err: unknown) {
       const error = err as AxiosError<{ error: string }>;
       setError(
-        error.response?.data?.error || 'İndeksleme sırasında bir hata oluştu'
+        error.response?.data?.error || 'An error occurred during indexing'
       );
       setIndexingStatus((prev) => ({
         ...prev,
@@ -66,7 +101,7 @@ export const VectorProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err: unknown) {
       const error = err as AxiosError<{ error: string }>;
       setError(
-        error.response?.data?.error || 'Arama sırasında bir hata oluştu'
+        error.response?.data?.error || 'An error occurred during search'
       );
       return [];
     } finally {
@@ -89,7 +124,8 @@ export const VectorProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err: unknown) {
       const error = err as AxiosError<{ error: string }>;
       setError(
-        error.response?.data?.error || 'Vektörler alınırken bir hata oluştu'
+        error.response?.data?.error ||
+          'An error occurred while fetching vectors'
       );
       return [];
     } finally {
@@ -111,7 +147,8 @@ export const VectorProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err: unknown) {
       const error = err as AxiosError<{ error: string }>;
       setError(
-        error.response?.data?.error || 'Vektörler silinirken bir hata oluştu'
+        error.response?.data?.error ||
+          'An error occurred while deleting vectors'
       );
     } finally {
       setIsLoading(false);

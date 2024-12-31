@@ -40,23 +40,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 }) => {
   const [token, _setToken] = useState<string | null>(() => {
     const savedToken = localStorage.getItem('token');
-    console.log('AuthContext - Initial token:', savedToken ? 'exists' : 'null');
     return savedToken;
   });
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  console.log('AuthContext - State:', {
-    hasToken: !!token,
-    user,
-    isLoading,
-  });
-
   const setToken = (newToken: string | null) => {
-    console.log(
-      'AuthContext - setToken called:',
-      newToken ? 'new token' : 'null'
-    );
     if (newToken) {
       localStorage.setItem('token', newToken);
       _setToken(newToken);
@@ -72,13 +61,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     const fetchUser = async () => {
       if (!token) {
-        console.log('AuthContext - No token, clearing user data');
         setUser(null);
         setIsLoading(false);
         return;
       }
 
-      console.log('AuthContext - Fetching user data');
       setIsLoading(true);
 
       try {
@@ -86,40 +73,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           baseURL: import.meta.env.VITE_API_URL,
           headers: { Authorization: `Bearer ${token}` },
         });
-        console.log('AuthContext - User data received:', response.data);
         setUser(response.data);
         setIsLoading(false);
-      } catch (error) {
-        console.error('AuthContext - Error fetching user:', error);
-        // Token geçersizse veya hata varsa temizle
+      } catch {
         setToken(null);
         setIsLoading(false);
       }
     };
 
     fetchUser();
-  }, [token]); // setToken'ı dependency'den çıkardık
+  }, [token]);
 
   const login = async (code: string) => {
-    try {
-      console.log('AuthContext - Login started');
-      const response = await axios.get(
-        `/api/auth/github/callback?code=${code}`,
-        {
-          baseURL: import.meta.env.VITE_API_URL,
-        }
-      );
-      const { token: newToken } = response.data;
-      console.log('AuthContext - Login successful, setting token');
-      setToken(newToken);
-    } catch (error) {
-      console.error('AuthContext - Login error:', error);
-      throw error;
-    }
+    const response = await axios.get(`/api/auth/github/callback?code=${code}`, {
+      baseURL: import.meta.env.VITE_API_URL,
+    });
+    const { token: newToken } = response.data;
+    setToken(newToken);
   };
 
   const logout = () => {
-    console.log('AuthContext - Logout');
     setToken(null);
   };
 

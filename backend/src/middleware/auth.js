@@ -54,11 +54,11 @@ const auth = async (req, res, next) => {
       next();
     } catch (error) {
       console.error('Token doğrulama hatası:', error);
-      res.status(401).json({ message: 'Geçersiz token' });
+      return res.status(401).json({ message: 'Geçersiz token' });
     }
   } catch (error) {
     console.error('Auth middleware hatası:', error);
-    res.status(500).json({ message: 'Sunucu hatası' });
+    return res.status(500).json({ message: 'Sunucu hatası' });
   }
 };
 

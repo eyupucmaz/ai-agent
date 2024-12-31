@@ -19,6 +19,10 @@ const vectorSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  description: {
+    type: String,
+    required: true
+  },
   vector: {
     type: [Number],
     required: true

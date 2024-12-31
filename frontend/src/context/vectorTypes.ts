@@ -1,6 +1,7 @@
 export interface SearchResult {
   filePath: string;
   content: string;
+  description: string;
   similarity: number;
   metadata: {
     language: string;
@@ -13,6 +14,7 @@ export interface VectorData {
   repoId: string;
   filePath: string;
   content: string;
+  description: string;
   vector: number[];
   metadata: {
     language: string;

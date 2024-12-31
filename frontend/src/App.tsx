@@ -13,6 +13,7 @@ import Home from './pages/Home';
 import Repos from './pages/Repos';
 import Chat from './pages/Chat';
 import Navbar from './components/Navbar';
+import { VectorProvider } from './context/VectorContext';
 
 // Korumalı route bileşeni
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
@@ -44,55 +45,57 @@ const TokenHandler: React.FC = () => {
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <Router>
-        <TokenHandler />
-        <div className="min-h-screen bg-gray-100">
-          <Navbar />
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Home />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/:username"
-              element={
-                <ProtectedRoute>
-                  <Repos />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/repos"
-              element={
-                <ProtectedRoute>
-                  <Repos />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/chat"
-              element={
-                <ProtectedRoute>
-                  <Chat />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/:username/chat/:owner/:repo"
-              element={
-                <ProtectedRoute>
-                  <Chat />
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
-        </div>
-      </Router>
+      <VectorProvider>
+        <Router>
+          <TokenHandler />
+          <div className="min-h-screen bg-gray-100">
+            <Navbar />
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route
+                path="/"
+                element={
+                  <ProtectedRoute>
+                    <Home />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/:username"
+                element={
+                  <ProtectedRoute>
+                    <Repos />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/repos"
+                element={
+                  <ProtectedRoute>
+                    <Repos />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/chat"
+                element={
+                  <ProtectedRoute>
+                    <Chat />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/:username/chat/:owner/:repo"
+                element={
+                  <ProtectedRoute>
+                    <Chat />
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </div>
+        </Router>
+      </VectorProvider>
     </AuthProvider>
   );
 };
