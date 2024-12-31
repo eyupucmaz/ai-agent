@@ -1,138 +1,138 @@
 # AI Code Agent - PRD (Product Requirements Document)
 
-## Ürün Özeti
+## Product Summary
 
-AI Code Agent, geliştiricilerin GitHub repolarını AI ile entegre etmelerini sağlayan, kod tabanını anlayan ve geliştirme sürecinde yardımcı olan bir araçtır. Google Gemini API kullanarak, kod tabanı üzerinde akıllı sorgular yapabilir, kod önerileri alabilir ve otomatik düzeltmeler uygulayabilirsiniz.
+AI Code Agent is a tool that allows developers to integrate their GitHub repositories with AI, understanding the codebase and assisting in the development process. By using the Google Gemini API, it can perform intelligent queries on the codebase, provide code suggestions, and apply automatic corrections.
 
-## Temel Özellikler
+## Key Features
 
-### 1. GitHub Entegrasyonu ve Kullanıcı Yönetimi
+### 1. GitHub Integration and User Management
 
-- GitHub OAuth ile kullanıcı girişi
-- Kullanıcının GitHub repolarına erişim ve listeleme
-- Seçilen reponun otomatik indekslenmesi ve vektör veritabanına kaydedilmesi
+- User login with GitHub OAuth
+- Access and listing of the user's GitHub repositories
+- Automatic indexing of the selected repository and saving to the vector database
 
-### 2. Kod Tabanı İndeksleme ve AI Eğitimi
+### 2. Codebase Indexing and AI Training
 
-- GitHub repo URL'si ile otomatik kod indeksleme
-- Kod yapısının vektör veritabanında (MongoDB) saklanması
-- Gemini AI modelinin kod tabanı üzerinde eğitilmesi
-- Gerçek zamanlı kod analizi ve indeksleme durumu takibi
+- Automatic code indexing with GitHub repository URL
+- Storage of code structure in the vector database (MongoDB)
+- Training the Gemini AI model on the codebase
+- Real-time code analysis and indexing status tracking
 
-### 3. AI Chat Arayüzü
+### 3. AI Chat Interface
 
-- ChatGPT benzeri modern ve kullanıcı dostu arayüz
-- Syntax highlighting ile renklendirilmiş kod yanıtları
-- Dosya seçme ve spesifik kod parçaları üzerinde sorgulama yapabilme
-- Kod oluşturma, düzenleme ve hata düzeltme önerileri
-- Sohbet geçmişi ve bağlam takibi
+- Modern and user-friendly interface similar to ChatGPT
+- Syntax highlighting with colored code responses
+- Ability to select files and query specific code snippets
+- Code generation, editing, and error correction suggestions
+- Chat history and context tracking
 
-## Teknik Mimari
+## Technical Architecture
 
 ### Frontend
 
 - React + TypeScript
 - Vite build tool
-- Önemli Kütüphaneler:
-  - React Router (sayfa yönetimi)
-  - CodeMirror/Monaco Editor (kod görüntüleme/düzenleme)
-  - Axios (HTTP istekleri)
-  - TailwindCSS (stil)
-  - React Query (veri yönetimi)
+- Key Libraries:
+  - React Router (page management)
+  - CodeMirror/Monaco Editor (code viewing/editing)
+  - Axios (HTTP requests)
+  - TailwindCSS (styling)
+  - React Query (data management)
 
 ### Backend
 
 - Node.js + Express.js
-- Önemli Özellikler:
+- Key Features:
   - RESTful API endpoints
-  - WebSocket desteği (gerçek zamanlı iletişim)
-  - GitHub API entegrasyonu
-  - Google Gemini API entegrasyonu
-  - Vektör veritabanı yönetimi
+  - WebSocket support (real-time communication)
+  - GitHub API integration
+  - Google Gemini API integration
+  - Vector database management
 
-### Veritabanı
+### Database
 
 - MongoDB
-  - Kullanıcı bilgileri
-  - Repo meta verileri
-  - Vektör indeksleri
-  - Sohbet geçmişi
+  - User information
+  - Repo metadata
+  - Vector indices
+  - Chat history
 
-## Güvenlik Gereksinimleri
+## Security Requirements
 
-- GitHub OAuth 2.0 güvenli kimlik doğrulama
-- API anahtarlarının güvenli yönetimi
-- Rate limiting ve DDoS koruması
-- Kullanıcı verilerinin şifrelenmesi
+- Secure authentication with GitHub OAuth 2.0
+- Secure management of API keys
+- Rate limiting and DDoS protection
+- Encryption of user data
 
-## Performans Gereksinimleri
+## Performance Requirements
 
-- Sayfa yüklenme süresi < 2 saniye
-- AI yanıt süresi < 3 saniye
-- Concurrent kullanıcı desteği
-- Ölçeklenebilir veritabanı yapısı
+- Page load time < 2 seconds
+- AI response time < 3 seconds
+- Concurrent user support
+- Scalable database structure
 
 ## API Endpoints
 
 ### Auth Endpoints
 
 ```http
-POST /api/auth/github/login     # GitHub OAuth başlatma
+POST /api/auth/github/login     # Start GitHub OAuth
 GET  /api/auth/github/callback  # GitHub OAuth callback
-POST /api/auth/logout          # Oturum kapatma
-GET  /api/auth/me              # Mevcut kullanıcı bilgisi
+POST /api/auth/logout          # Logout
+GET  /api/auth/me              # Current user information
 ```
 
 ### GitHub Endpoints
 
 ```http
-GET  /api/github/repos                    # Kullanıcının repolarını listele
-POST /api/github/repos/index              # Repo indekslemeyi başlat
-GET  /api/github/repos/:owner/:repo       # Repo detaylarını getir
-GET  /api/github/repos/:owner/:repo/files # Repo dosyalarını listele
-GET  /api/github/repos/:owner/:repo/file  # Belirli bir dosyanın içeriğini getir
+GET  /api/github/repos                    # List user's repositories
+POST /api/github/repos/index              # Start repository indexing
+GET  /api/github/repos/:owner/:repo       # Get repository details
+GET  /api/github/repos/:owner/:repo/files # List repository files
+GET  /api/github/repos/:owner/:repo/file  # Get content of a specific file
 ```
 
 ### Gemini AI Endpoints
 
 ```http
-POST /api/ai/chat                # AI ile sohbet
-POST /api/ai/analyze            # Kod analizi
-POST /api/ai/suggest            # Kod önerisi
-POST /api/ai/fix                # Hata düzeltme
-GET  /api/ai/chat/history       # Sohbet geçmişi
+POST /api/ai/chat                # Chat with AI
+POST /api/ai/analyze            # Code analysis
+POST /api/ai/suggest            # Code suggestion
+POST /api/ai/fix                # Error correction
+GET  /api/ai/chat/history       # Chat history
 ```
 
 ### Database Endpoints
 
 ```http
-GET    /api/db/vectors/:repoId  # Repo vektörlerini getir
-POST   /api/db/vectors/search   # Vektör araması yap
-DELETE /api/db/vectors/:repoId  # Repo vektörlerini sil
+GET    /api/db/vectors/:repoId  # Get repository vectors
+POST   /api/db/vectors/search   # Perform vector search
+DELETE /api/db/vectors/:repoId  # Delete repository vectors
 ```
 
 ### WebSocket Endpoints
 
 ```websocket
-ws://api/ws/indexing  # İndeksleme durumu takibi
-ws://api/ws/chat     # Gerçek zamanlı AI sohbet
+ws://api/ws/indexing  # Indexing status tracking
+ws://api/ws/chat     # Real-time AI chat
 ```
 
-## Kurulum
+## Installation
 
 ```bash
-# Frontend kurulumu
+# Frontend installation
 cd frontend
 npm install
 npm run dev
 
-# Backend kurulumu
+# Backend installation
 cd backend
 npm install
 npm run dev
 ```
 
-## Ortam Değişkenleri
+## Environment Variables
 
 ```env
 # Backend
@@ -145,7 +145,7 @@ MONGODB_URI=
 VITE_API_URL=
 ```
 
-## Katkıda Bulunma
+## Contributing
 
 1. Fork the Project
 2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
@@ -153,13 +153,13 @@ VITE_API_URL=
 4. Push to the Branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
 
-## Lisans
+## License
 
 MIT License
 
-## Renk Şeması
+## Color Scheme
 
-Projede kullanılan Tailwind renk şeması:
+The Tailwind color scheme used in the project:
 
 ```javascript
 {
@@ -226,4 +226,4 @@ Projede kullanılan Tailwind renk şeması:
 }
 ```
 
-Bu renk şeması, modern ve profesyonel bir görünüm sağlamak için UI bileşenlerinde tutarlı bir şekilde kullanılmaktadır.
+This color scheme is consistently used in UI components to provide a modern and professional appearance.
